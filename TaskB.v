@@ -1,4 +1,4 @@
-/TASK B
+//TASK B
 
 `timescale 1ns / 1ps
 
