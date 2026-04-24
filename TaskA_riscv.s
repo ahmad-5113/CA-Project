@@ -1,40 +1,65 @@
-# Initialization and Setup
-0x00: 93 04 00 10    li      s1, 16           # Load immediate 16 into s1
-0x04: 13 09 40 10    addi    s2, zero, 260    # Load immediate 260 into s2
-0x08: 83 a2 04 00    lw      t0, 4(s1)        # Load word from address (s1 + 4)
+# =================================================================
+# LAB 10: MEMORY-MAPPED FSM COUNTDOWN
+# =================================================================
+.equ SWITCH_ADDR, 0x100
+.equ LED_ADDR,    0x104
 
-# Loop and Branching Logic
-0x0C: e3 8e 02 fe    beq     t0, zero, -4     # If t0 == 0, branch back (infinite wait loop)
-0x10: 13 85 02 00    addi    a0, t0, 0        # Move t0 to argument register a0
-0x14: 23 20 a9 00    sw      a0, 0(s2)        # Store a0 into address pointed by s2
+.text
+.globl start
 
-# Jump to Function/Return
-0x18: ef 00 80 00    jal     ra, 8            # Jump to offset +8 and link (calling a function)
-0x1C: 6f f0 df fe    j       -32              # Jump back to start (Main loop)
+# --- Hardware Setup ---
+# Load the memory-mapped addresses into base registers
+addi s1, zero, 0x100        # s1 = 0x100 (Switches)
+addi s2, zero, 0x104        # s2 = 0x104 (LEDs)
 
-# Stack and Frame Management (Epilogue style)
-0x20: 13 01 81 ff    addi    sp, sp, -8       # Allocate stack space
-0x24: 23 22 11 00    sw      a1, 4(sp)        # Save a1 to stack
-0x28: 23 20 81 00    sw      s0, 0(sp)        # Save s0 to stack
+# =================================================================
+# MAIN LOOP: WAITING FOR INPUT
+# =================================================================
+start:
+    lw t0, 0(s1)            # Read physical switches into t0
+    beq t0, zero, start     # If switches == 0, loop back and keep waiting
+    
+    addi a0, t0, 0          # Move the switch value into the argument register (a0)
+    sw a0, 0(s2)            # Immediately write the value to the LEDs
+    
+    jal ra, countdown_state # Jump to the countdown subroutine (saves return address)
+    j start                 # When subroutine finishes, loop back to the very beginning
 
-# Comparison and Arithmetic
-0x2C: 13 04 05 00    addi    s0, a0, 0        # Copy a0 to s0
-0x30: 63 00 04 02    beq     s0, zero, 4      # If s0 is zero, skip next instruction
-0x34: 23 20 89 00    sw      s1, 0(s2)        # Store s1 into address s2
+# =================================================================
+# SUBROUTINE: COUNTDOWN FSM
+# =================================================================
+countdown_state:
+    # --- Stack Allocation ---
+    # Save the return address and s0 register to the stack so we don't lose them
+    addi sp, sp, -8         
+    sw ra, 4(sp)            
+    sw s0, 0(sp)            
+    
+    addi s0, a0, 0          # Move the starting number (from a0) into s0 to manipulate
 
-# Large Constant Loading (Upper Immediate)
-0x38: 37 23 26 00    lui     t1, 0x262        # Load 0x262000 into t1
-0x3C: 13 03 03 f8    addi    t1, t1, -125     # Fine-tune t1 value
-0x40: 13 03 f3 ff    addi    t1, t1, -1       # Adjust t1
+count_loop:
+    beq s0, zero, done      # If counter hits 0, exit the loop!
+    sw s0, 0(s2)            # Output current counter value to the physical LEDs
 
-# Loop/Branch Control
-0x44: e3 1e 03 fe    bne     t1, zero, -4     # Loop until t1 is zero (delay loop)
-0x48: 13 04 f4 ff    addi    s0, s0, -1       # Decrement s0
-0x4C: 6f f0 5f fe    j       -28              # Jump back
+    # --- Hardware Delay Timer (~0.5 seconds at 10MHz) ---
+    # li t1, 2498432 (Expands to lui and addi)
+    lui t1, 0x262           # Load upper bits
+    addi t1, t1, -128       # Subtract 128 to get exactly 2,498,432 iterations
+delay:
+    addi t1, t1, -1         # Decrement delay counter
+    bne t1, zero, delay     # Keep looping until delay counter hits 0
+    # ----------------------------------------------------
+    
+    addi s0, s0, -1         # Decrement the actual LED counter by 1
+    j count_loop            # Jump back up to check condition and update LEDs
 
-# Cleanup and Return
-0x50: 23 20 09 00    sw      zero, 0(s2)      # Clear memory at s2
-0x54: 03 24 01 00    lw      s0, 0(sp)        # Restore s0
-0x58: 83 20 41 00    lw      ra, 4(sp)        # Restore return address (ra)
-0x5C: 13 01 81 00    addi    sp, sp, 8        # Deallocate stack
-0x60: 67 80 00 00    ret                      # Return to caller
+done:
+    sw zero, 0(s2)          # Turn off all LEDs to signify the sequence is over
+    
+    # --- Stack Deallocation ---
+    # Restore the original values of s0 and ra from the stack
+    lw s0, 0(sp)            
+    lw ra, 4(sp)            
+    addi sp, sp, 8          
+    
+    jalr zero, 0(ra)        # Return to the main loop using the saved Return Address
