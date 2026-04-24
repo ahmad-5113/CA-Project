@@ -1,32 +1,25 @@
-.section .text
-.globl _start
+# Setup constants and base addresses
+addi s1, zero, 0x100    # s1 = Switch Address
+addi s2, zero, 0x104    # s2 = LED Address
+addi t2, zero, 1        # t2 = Constant 1 (used for shifting and BGE)
 
-_start:
-    # --- Initialization ---
-    addi    s1, zero, 16        # 93 04 00 10 -> s1 = 16
-    addi    s2, zero, 260       # 13 09 40 10 -> s2 = 260
-    addi    t2, zero, 1         # 93 03 10 00 -> t2 = 1
+start:
+    lw s0, 0(s1)        # Read the current value of the switches into s0
+    slti t0, s0, 8      # [NEW INSTRUCTION] If s0 < 8, set t0 to 1. Else, 0.
+    beq t0, zero, loop  # If input is >= 8, skip the override
+    lui s0, 0x00008     # Override: Set s0 to 0x8000 (32768) for a long sequence
 
-    # --- Memory Access & Comparison ---
 loop:
-    lw      s4, 0(s1)           # 03 a4 04 00 -> Load word from [s1] into s4
-    slti    t0, s4, 8           # 93 22 84 00 -> t0 = 1 if s4 < 8, else 0
-    bge     s0, s4, skip_store  # 63 84 02 00 -> If s0 >= s4, jump to skip_store
-
-    # --- Write to Peripheral ---
-    lui     s4, 8               # 37 84 00 00 -> Load 0x8 into upper bits of s4
-    sw      s1, 0(s2)           # 23 20 89 00 -> Store s1 (16) at address [s2]
-
-    # --- Delay Loop Setup ---
-skip_store:
-    lui     t1, 0x50            # 37 03 50 00 -> Load 0x50000 into t1
+    sw s0, 0(s2)        # Display current number on the LEDs
+    
+    # --- Delay Loop (so human eyes can see the LEDs) ---
+    lui t1, 0x00500     # UPDATED: Load ~5,242,880 iterations for the 10MHz clock
 delay:
-    addi    t1, t1, -1          # 13 03 f3 ff -> Decrement t1
-    bne     t1, zero, delay     # e3 1e 03 fe -> Loop until t1 is 0
+    addi t1, t1, -1
+    bne t1, zero, delay
+    # ---------------------------------------------------
 
-    # --- Bit Manipulation & Control ---
-    srl     s0, s0, t4          # 33 54 74 00 -> Shift Right Logical: s0 = s0 >> t4
-    bge     s0, t4, loop        # e3 56 74 fe -> If s0 >= t4, jump back to 'loop'
+    srl s0, s0, t2      # [NEW INSTRUCTION] Divide s0 by 2 (Shift right by 1)
+    bge s0, t2, loop    # [NEW INSTRUCTION] If s0 >= 1, loop back up
 
-    # --- Final Jump ---
-    jal     zero, start_over    # 6f f0 9f fd -> Jump back to start/initialization
+    jal zero, start     # When sequence hits 0, restart from the beginning
